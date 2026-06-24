@@ -52,7 +52,9 @@ def main(args):
     camera_names = task_config['camera_names']
 
     # fixed parameters
-    state_dim = 14
+    mode = args.get('mode', 'baseline')
+    state_dim = 7                                    # action output: always 7-DOF single arm
+    qpos_dim = 17 if mode == 'yolo_guided' else 7   # proprio input: +10 for bbox coords
     lr_backbone = 1e-5
     backbone = 'resnet18'
     if policy_class == 'ACT':
@@ -70,6 +72,8 @@ def main(args):
                          'dec_layers': dec_layers,
                          'nheads': nheads,
                          'camera_names': camera_names,
+                         'state_dim': state_dim,
+                         'qpos_dim': qpos_dim,
                          }
     elif policy_class == 'CNNMLP':
         policy_config = {'lr': args['lr'], 'lr_backbone': lr_backbone, 'backbone' : backbone, 'num_queries': 1,
@@ -90,7 +94,8 @@ def main(args):
         'seed': args['seed'],
         'temporal_agg': args['temporal_agg'],
         'camera_names': camera_names,
-        'real_robot': not is_sim
+        'real_robot': not is_sim,
+        'mode': mode,
     }
 
     if is_eval:
@@ -105,7 +110,7 @@ def main(args):
         print()
         exit()
 
-    train_dataloader, val_dataloader, stats, _ = load_data(dataset_dir, num_episodes, camera_names, batch_size_train, batch_size_val)
+    train_dataloader, val_dataloader, stats, _ = load_data(dataset_dir, num_episodes, camera_names, batch_size_train, batch_size_val, mode=mode)
 
     # save dataset stats
     if not os.path.isdir(ckpt_dir):
@@ -436,5 +441,6 @@ if __name__ == '__main__':
     parser.add_argument('--hidden_dim', action='store', type=int, help='hidden_dim', required=False)
     parser.add_argument('--dim_feedforward', action='store', type=int, help='dim_feedforward', required=False)
     parser.add_argument('--temporal_agg', action='store_true')
-    
+    parser.add_argument('--mode', action='store', type=str, default='baseline', help='baseline|yolo_guided')
+
     main(vars(parser.parse_args()))

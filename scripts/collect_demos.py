@@ -478,6 +478,8 @@ def parse_args():
     p.add_argument('--yolo_weights', type=str,
                    default='weights/yolov8n_pickplace.pt',
                    help='Path to YOLO weights (relative to project root).')
+    p.add_argument('--start_idx',    type=int,  default=0,
+                   help='Starting episode index for filenames (avoids overwriting existing demos).')
     p.add_argument('--smoke_test',   action='store_true',
                    help='Run 2 episodes and print HDF5 shapes then exit.')
     return p.parse_args()
@@ -506,13 +508,14 @@ def main():
 
     last_saved_path = None
     for ep_idx in range(num_episodes):
+        file_idx = args.start_idx + ep_idx
         # Reset with a different seed each episode for randomised cube placement.
-        env._task._random = np.random.RandomState(args.seed + ep_idx)
+        env._task._random = np.random.RandomState(args.seed + file_idx)
 
         print(f'Episode {ep_idx + 1}/{num_episodes} ... ', end='', flush=True)
-        data = run_episode(env, ep_idx, detector, inject_noise=args.inject_noise)
+        data = run_episode(env, file_idx, detector, inject_noise=args.inject_noise)
 
-        fpath = save_episode(out_dir, ep_idx, data)
+        fpath = save_episode(out_dir, file_idx, data)
         last_saved_path = fpath
 
         status = 'SUCCESS' if data['success'] else 'fail'

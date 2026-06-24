@@ -66,6 +66,9 @@ def get_args_parser():
     parser.add_argument('--kl_weight', action='store', type=int, help='KL Weight', required=False)
     parser.add_argument('--chunk_size', action='store', type=int, help='chunk_size', required=False)
     parser.add_argument('--temporal_agg', action='store_true')
+    parser.add_argument('--state_dim', action='store', type=int, default=7, help='action output dim')
+    parser.add_argument('--qpos_dim', action='store', type=int, default=7, help='proprio input dim (7 baseline, 17 yolo_guided)')
+    parser.add_argument('--mode', action='store', type=str, default='baseline', help='baseline|yolo_guided')
 
     return parser
 

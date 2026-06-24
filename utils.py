@@ -96,10 +96,10 @@ class EpisodicDataset(torch.utils.data.Dataset):
         return image_data, qpos_data, action_data, is_pad
 
 
-def get_norm_stats(dataset_dir, num_episodes, mode='baseline'):
+def get_norm_stats(dataset_dir, episode_ids, mode='baseline'):
     all_qpos_data = []
     all_action_data = []
-    for episode_idx in range(num_episodes):
+    for episode_idx in episode_ids:
         dataset_path = os.path.join(dataset_dir, f'episode_{episode_idx}.hdf5')
         with h5py.File(dataset_path, 'r') as root:
             qpos = root['qpos'][()]
@@ -134,18 +134,32 @@ def get_norm_stats(dataset_dir, num_episodes, mode='baseline'):
     return stats
 
 
+def get_successful_episode_ids(dataset_dir):
+    """Return sorted IDs of episodes where attrs/success is True."""
+    import glob
+    ids = []
+    for path in sorted(glob.glob(os.path.join(dataset_dir, 'episode_*.hdf5'))):
+        with h5py.File(path, 'r') as f:
+            if f.attrs.get('success', True):
+                ids.append(int(os.path.basename(path).split('_')[1].split('.')[0]))
+    return ids
+
+
 def load_data(dataset_dir, num_episodes, camera_names, batch_size_train, batch_size_val, mode='baseline'):
     print(f'\nData from: {dataset_dir}\n')
-    # obtain train test split
+    all_ids = get_successful_episode_ids(dataset_dir)
+    if not all_ids:
+        raise ValueError(f'No successful episodes found in {dataset_dir}')
+    print(f'Using {len(all_ids)} successful episodes')
+
     train_ratio = 0.8
-    shuffled_indices = np.random.permutation(num_episodes)
-    train_indices = shuffled_indices[:int(train_ratio * num_episodes)]
-    val_indices = shuffled_indices[int(train_ratio * num_episodes):]
+    perm = np.random.permutation(len(all_ids))
+    shuffled_ids = np.array(all_ids)[perm]
+    train_indices = shuffled_ids[:int(train_ratio * len(all_ids))]
+    val_indices = shuffled_ids[int(train_ratio * len(all_ids)):]
 
-    # obtain normalization stats for qpos and action
-    norm_stats = get_norm_stats(dataset_dir, num_episodes, mode)
+    norm_stats = get_norm_stats(dataset_dir, all_ids, mode)
 
-    # construct dataset and dataloader
     train_dataset = EpisodicDataset(train_indices, dataset_dir, camera_names, norm_stats, mode)
     val_dataset = EpisodicDataset(val_indices, dataset_dir, camera_names, norm_stats, mode)
     train_dataloader = DataLoader(train_dataset, batch_size=batch_size_train, shuffle=True, pin_memory=True, num_workers=1, prefetch_factor=1)

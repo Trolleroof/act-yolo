@@ -5,7 +5,7 @@ DATA_DIR = str(pathlib.Path(__file__).parent.resolve()) + '/data'
 SIM_TASK_CONFIGS = {
     'sim_pick_place': {
         'dataset_dir': DATA_DIR + '/demos',
-        'num_episodes': 2,
+        'num_episodes': 50,  # upper bound; loader filters to successful episodes automatically
         'episode_len': 400,
         'camera_names': ['top', 'wrist']
     },
