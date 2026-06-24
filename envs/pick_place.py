@@ -48,6 +48,7 @@ class PickPlaceTask(base.Task):
 
     def __init__(self, random=None):
         super().__init__(random=random)
+        self.max_reward = 1.0
 
     def initialize_episode(self, physics):
         rng = self.random if self.random is not None else np.random

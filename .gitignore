@@ -1,1 +1,9 @@
 main.md
+data/
+checkpoints/
+weights/
+__pycache__/
+*.pyc
+.DS_Store
+.claude/
+.vscode/
