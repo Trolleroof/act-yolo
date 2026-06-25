@@ -4,7 +4,7 @@
 set -e
 
 REPO="https://github.com/Trolleroof/act-yolo.git"
-PROJECT_ROOT="$HOME/act-yolo"
+PROJECT_ROOT="/workspace/act-yolo"
 
 # MuJoCo rendering on RunPod is headless; EGL avoids GLFW/X11 DISPLAY errors.
 export MUJOCO_GL=egl
