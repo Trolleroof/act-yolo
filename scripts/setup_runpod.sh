@@ -6,6 +6,10 @@ set -e
 REPO="https://github.com/Trolleroof/act-yolo.git"
 PROJECT_ROOT="$HOME/act-yolo"
 
+# MuJoCo rendering on RunPod is headless; EGL avoids GLFW/X11 DISPLAY errors.
+export MUJOCO_GL=egl
+export PYOPENGL_PLATFORM=egl
+
 # ── 1. Clone ──────────────────────────────────────────────────────────────────
 if [ ! -d "$PROJECT_ROOT" ]; then
   git clone "$REPO" "$PROJECT_ROOT"
