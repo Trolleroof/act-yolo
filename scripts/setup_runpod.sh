@@ -17,6 +17,13 @@ fi
 cd "$PROJECT_ROOT"
 
 # ── 2. Install deps ───────────────────────────────────────────────────────────
+apt-get update
+apt-get install -y --no-install-recommends \
+  libegl1 \
+  libgl1 \
+  libglvnd0 \
+  libgles2
+
 pip install -q torch torchvision --index-url https://download.pytorch.org/whl/cu121
 pip install -q \
   mujoco dm_control \
