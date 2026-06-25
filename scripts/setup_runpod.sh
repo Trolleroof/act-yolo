@@ -23,7 +23,7 @@ pip install -q \
 
 # ── 3. Generate YOLO training data (5k frames) ────────────────────────────────
 echo "=== Generating YOLO data ==="
-python detection/generate_yolo_data.py --num_frames 5000 --out data/yolo_dataset
+python detection/generate_yolo_data.py --n_frames 5000 --out data/yolo_dataset
 
 # ── 4. Train YOLO detector ────────────────────────────────────────────────────
 echo "=== Training YOLOv8 ==="
