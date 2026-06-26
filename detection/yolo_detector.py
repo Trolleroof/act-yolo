@@ -4,7 +4,7 @@ CLASS_NAMES = {0: 'cube', 1: 'target_zone'}
 
 
 class YOLODetector:
-    def __init__(self, weights='weights/yolov8n_pickplace.pt', conf=0.01):
+    def __init__(self, weights='weights/yolov8n_pickplace.pt', conf=0.001):
         from ultralytics import YOLO
         self.model = YOLO(weights)
         self.conf = conf
