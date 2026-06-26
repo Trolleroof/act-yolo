@@ -25,7 +25,15 @@ def main():
     parser.add_argument('--seed', type=int, default=1)
     parser.add_argument('--temporal_agg', action='store_true', default=True)
     parser.add_argument('--task_name', type=str, default='sim_pick_place')
-    
+    # Fair-comparison augmentation. Defaults ON so both modes are trained to
+    # cope with the corrupted eval environments (lifts the floor symmetrically).
+    parser.add_argument('--image_aug', dest='image_aug', action='store_true', default=True,
+                        help='Train-time visual corruption (identical across modes).')
+    parser.add_argument('--no_image_aug', dest='image_aug', action='store_false')
+    parser.add_argument('--box_aug', dest='box_aug', action='store_true', default=True,
+                        help='Jitter/drop detection boxes during training (yolo_guided/gt_boxes).')
+    parser.add_argument('--no_box_aug', dest='box_aug', action='store_false')
+
     args = parser.parse_args()
 
     set_seed(args.seed)
@@ -81,8 +89,10 @@ def main():
 
     # Load data
     train_dataloader, val_dataloader, stats, _ = load_data(
-        dataset_dir, num_episodes, camera_names, args.batch_size, args.batch_size, mode=args.mode
+        dataset_dir, num_episodes, camera_names, args.batch_size, args.batch_size,
+        mode=args.mode, image_aug=args.image_aug, box_aug=args.box_aug, seed=args.seed
     )
+    print(f"Augmentation: image_aug={args.image_aug} box_aug={args.box_aug}")
 
     # Save stats
     stats_path = os.path.join(ckpt_dir, 'dataset_stats.pkl')

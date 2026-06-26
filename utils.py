@@ -10,16 +10,47 @@ try:
 except ImportError:
     e = lambda: None
 
+# Eval-matched corruption operator, reused for train-time domain randomization.
+from vision.corruption import corrupt_frame
+
+
 class EpisodicDataset(torch.utils.data.Dataset):
-    def __init__(self, episode_ids, dataset_dir, camera_names, norm_stats, mode='baseline'):
+    def __init__(self, episode_ids, dataset_dir, camera_names, norm_stats, mode='baseline',
+                 image_aug=False, box_aug=False, aug_severities=(0, 1, 2, 3),
+                 aug_p=0.85, box_jitter=0.02, box_dropout=0.1, seed=None):
         super(EpisodicDataset).__init__()
         self.episode_ids = episode_ids
         self.dataset_dir = dataset_dir
         self.camera_names = camera_names
         self.norm_stats = norm_stats
         self.mode = mode
+        # --- Fair-comparison augmentation (training split only) ---
+        # image_aug: corrupt camera frames at train time with the SAME operator
+        #   used at eval, applied identically for every mode so the only thing
+        #   that differs between baseline and yolo_guided is the box channel.
+        # box_aug: jitter / occasionally drop the appended detection boxes so the
+        #   policy learns to tolerate the imperfect boxes a real YOLO produces on
+        #   corrupted frames (closes the clean-train / noisy-eval box gap).
+        self.image_aug = image_aug
+        self.box_aug = box_aug
+        self.aug_severities = np.asarray(aug_severities)
+        self.aug_p = aug_p
+        self.box_jitter = box_jitter
+        self.box_dropout = box_dropout
+        self._rng = np.random.default_rng(seed)
         self.is_sim = None
         self.__getitem__(0) # initialize self.is_sim
+
+    def _augment_box(self, box):
+        """Jitter a (5,) [cx,cy,w,h,conf] box, or zero it to mimic a missed detection."""
+        if box is None or not np.any(box):
+            return box
+        if self._rng.random() < self.box_dropout:
+            return np.zeros_like(box)
+        out = box.astype(np.float32).copy()
+        out[:4] += self._rng.normal(0.0, self.box_jitter, size=4)
+        out[:4] = np.clip(out[:4], 0.0, 1.0)
+        return out
 
     def __len__(self):
         return len(self.episode_ids)
@@ -45,10 +76,16 @@ class EpisodicDataset(torch.utils.data.Dataset):
             if self.mode == 'yolo_guided':
                 cube_box = root['cube_boxes'][start_ts]
                 target_box = root['target_boxes'][start_ts]
+                if self.box_aug:
+                    cube_box = self._augment_box(cube_box)
+                    target_box = self._augment_box(target_box)
                 qpos = np.concatenate([qpos, cube_box, target_box])
             elif self.mode == 'gt_boxes':
                 gt_cube_box = root['gt_cube_boxes'][start_ts]
                 gt_target_box = root['gt_target_boxes'][start_ts]
+                if self.box_aug:
+                    gt_cube_box = self._augment_box(gt_cube_box)
+                    gt_target_box = self._augment_box(gt_target_box)
                 qpos = np.concatenate([qpos, gt_cube_box, gt_target_box])
 
             # Read camera frames
@@ -63,6 +100,18 @@ class EpisodicDataset(torch.utils.data.Dataset):
                     image_dict[cam_name] = root['wrist_rgb'][start_ts]
                 else:
                     image_dict[cam_name] = root[cam_name][start_ts]
+
+            # Train-time visual domain randomization (identical across modes).
+            # Crops in yolo_crops mode are left untouched (already object-centered).
+            if self.image_aug:
+                for cam_name in self.camera_names:
+                    if self.mode == 'yolo_crops' and cam_name == 'top':
+                        continue
+                    if self._rng.random() < self.aug_p:
+                        sev = int(self._rng.choice(self.aug_severities))
+                        if sev > 0:
+                            image_dict[cam_name] = corrupt_frame(
+                                image_dict[cam_name], sev, rng=self._rng)
 
             action = root['actions'][start_ts:]
             action_len = episode_len - start_ts
@@ -145,7 +194,8 @@ def get_successful_episode_ids(dataset_dir):
     return ids
 
 
-def load_data(dataset_dir, num_episodes, camera_names, batch_size_train, batch_size_val, mode='baseline'):
+def load_data(dataset_dir, num_episodes, camera_names, batch_size_train, batch_size_val,
+              mode='baseline', image_aug=False, box_aug=False, seed=None):
     print(f'\nData from: {dataset_dir}\n')
     all_ids = get_successful_episode_ids(dataset_dir)
     if not all_ids:
@@ -160,7 +210,10 @@ def load_data(dataset_dir, num_episodes, camera_names, batch_size_train, batch_s
 
     norm_stats = get_norm_stats(dataset_dir, all_ids, mode)
 
-    train_dataset = EpisodicDataset(train_indices, dataset_dir, camera_names, norm_stats, mode)
+    # Augmentation is applied to the training split only; validation stays clean
+    # so val loss tracks fit to the (clean) demonstrations consistently.
+    train_dataset = EpisodicDataset(train_indices, dataset_dir, camera_names, norm_stats, mode,
+                                    image_aug=image_aug, box_aug=box_aug, seed=seed)
     val_dataset = EpisodicDataset(val_indices, dataset_dir, camera_names, norm_stats, mode)
     train_dataloader = DataLoader(train_dataset, batch_size=batch_size_train, shuffle=True, pin_memory=True, num_workers=1, prefetch_factor=1)
     val_dataloader = DataLoader(val_dataset, batch_size=batch_size_val, shuffle=True, pin_memory=True, num_workers=1, prefetch_factor=1)

@@ -2,8 +2,11 @@ main.md
 data/
 checkpoints/
 weights/
+runs/
+.cache/
 __pycache__/
 *.pyc
 .DS_Store
 .claude/
 .vscode/
+CLAUDE_HANDOFF.md

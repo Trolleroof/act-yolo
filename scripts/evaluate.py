@@ -161,6 +161,8 @@ def main():
     total_steps = 0
     cube_misses = 0
     target_misses = 0
+    per_rollout_success = []   # 0/1 per rollout — enables significance testing
+    rollout_seeds = []
 
     print(f"Evaluating {args.mode} on task {args.task_name} (Severity {severity}) for {args.num_rollouts} rollouts...")
 
@@ -234,7 +236,8 @@ def main():
                 k = 0.01
                 exp_weights = np.exp(-k * np.arange(len(actions_for_curr_step)))
                 exp_weights = exp_weights / exp_weights.sum()
-                exp_weights = torch.from_numpy(exp_weights).to(device).unsqueeze(dim=1)
+                # float32: MPS does not support float64 tensors.
+                exp_weights = torch.from_numpy(exp_weights.astype(np.float32)).to(device).unsqueeze(dim=1)
                 raw_action = (actions_for_curr_step * exp_weights).sum(dim=0, keepdim=True)
 
                 # Post-process actions
@@ -256,6 +259,8 @@ def main():
 
         if success:
             success_count += 1
+        per_rollout_success.append(int(success))
+        rollout_seeds.append(int(args.seed + rollout_id))
 
         # Write video for rollout 0
         if rollout_id == 0 and len(rollout_frames) > 0:
@@ -287,7 +292,10 @@ def main():
         'success_rate': success_rate,
         'cube_miss_rate': cube_miss_rate,
         'target_miss_rate': target_miss_rate,
-        'overall_miss_rate': overall_miss_rate
+        'overall_miss_rate': overall_miss_rate,
+        'success_count': success_count,
+        'per_rollout_success': per_rollout_success,
+        'rollout_seeds': rollout_seeds,
     }
     
     os.makedirs(os.path.join(_PROJECT_ROOT, 'data', 'eval_results'), exist_ok=True)

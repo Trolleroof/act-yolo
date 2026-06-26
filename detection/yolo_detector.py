@@ -32,8 +32,9 @@ class YOLODetector:
                 detections[name] = candidate
 
         if detections['cube'] is None and len(candidates['target_zone']) >= 2:
-            # ponytail: YOLO sometimes localizes both objects but calls both target_zone;
-            # target zone is the larger flat box, cube is the smaller box.
+            # Recovery heuristic: YOLO sometimes localizes both objects but labels
+            # both as target_zone. In this scene the target zone is the larger flat
+            # box and the cube is the smaller box, so split them by area.
             by_area = sorted(candidates['target_zone'], key=lambda b: b[2] * b[3])
             detections['cube'] = by_area[0]
             detections['target_zone'] = by_area[-1]

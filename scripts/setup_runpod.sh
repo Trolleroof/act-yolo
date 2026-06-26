@@ -36,10 +36,24 @@ pip install -q \
 echo "=== Generating YOLO data ==="
 python detection/generate_yolo_data.py --n_frames 5000 --out data/yolo_dataset
 
-# ── 4. Train YOLO detector ────────────────────────────────────────────────────
-echo "=== Training YOLOv8 ==="
-python detection/train_yolo.py
-# weights saved to weights/yolov8n_pickplace.pt
+# ── 4. Train YOLO detector (corruption-aug / Option A, on by default) ─────────
+echo "=== Training YOLOv8 (corruption augmentation enabled) ==="
+python detection/train_yolo.py \
+  --data data/yolo_dataset/dataset.yaml \
+  --name pickplace_full_aug \
+  --epochs 50 --imgsz 480 --batch 64 --corrupt_aug --corrupt_p 0.85
+
+# Ultralytics writes to <runs>/<name>/weights/best.pt — copy it to the single
+# path collect_demos.py and evaluate.py load. Without this, the rest of the
+# pipeline silently falls back to ZERO boxes.
+BEST="$(find weights runs /opt -name best.pt -path '*pickplace_full_aug*' 2>/dev/null | head -1)"
+if [ -z "$BEST" ]; then echo "ERROR: trained YOLO best.pt not found"; exit 1; fi
+cp "$BEST" weights/yolov8n_pickplace.pt
+echo "Installed YOLO weights -> weights/yolov8n_pickplace.pt (from $BEST)"
+
+# ── 4b. Sanity gate — must pass before spending GPU on ACT ────────────────────
+echo "=== YOLO rendered-frame sanity gate ==="
+python scripts/yolo_sanity.py --weights weights/yolov8n_pickplace.pt --n 100
 
 # ── 5. Collect demos ──────────────────────────────────────────────────────────
 echo "=== Collecting demos (batch 1) ==="
