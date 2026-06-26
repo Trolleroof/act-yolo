@@ -16,7 +16,7 @@ def main():
     parser.add_argument('--mode', type=str, default='baseline',
                         choices=['baseline', 'yolo_guided', 'yolo_crops', 'gt_boxes'])
     parser.add_argument('--num_epochs', type=int, default=2000)
-    parser.add_argument('--batch_size', type=int, default=8)
+    parser.add_argument('--batch_size', type=int, default=32)
     parser.add_argument('--lr', type=float, default=1e-5)
     parser.add_argument('--kl_weight', type=int, default=10)
     parser.add_argument('--chunk_size', type=int, default=100)
@@ -35,6 +35,12 @@ def main():
     parser.add_argument('--no_box_aug', dest='box_aug', action='store_false')
 
     args = parser.parse_args()
+
+    # Maximize GPU throughput on Ampere/Ada (4090): TF32 gives ~10x matmul speedup
+    # with negligible precision loss for NN training.
+    torch.backends.cuda.matmul.allow_tf32 = True
+    torch.backends.cudnn.allow_tf32 = True
+    torch.backends.cudnn.benchmark = True
 
     set_seed(args.seed)
 
