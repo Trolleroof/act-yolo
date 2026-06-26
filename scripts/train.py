@@ -90,7 +90,8 @@ def main():
         'temporal_agg': args.temporal_agg,
         'camera_names': camera_names,
         'real_robot': False,
-        'mode': args.mode
+        'mode': args.mode,
+        'val_freq': 10,
     }
 
     # Load data

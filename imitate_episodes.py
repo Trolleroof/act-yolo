@@ -342,31 +342,30 @@ def train_bc(train_dataloader, val_dataloader, config):
     policy.to(device)
     optimizer = make_optimizer(policy_class, policy)
 
+    val_freq = config.get('val_freq', 10)
     train_history = []
     validation_history = []
     min_val_loss = np.inf
     best_ckpt_info = None
+    last_val_summary = None
+    last_val_loss = float('inf')
     for epoch in tqdm(range(num_epochs)):
-        print(f'\nEpoch {epoch}')
-        # validation
-        with torch.inference_mode():
-            policy.eval()
-            epoch_dicts = []
-            for batch_idx, data in enumerate(val_dataloader):
-                forward_dict = forward_pass(data, policy)
-                epoch_dicts.append(forward_dict)
-            epoch_summary = compute_dict_mean(epoch_dicts)
-            validation_history.append(epoch_summary)
-
-            epoch_val_loss = epoch_summary['loss']
-            if epoch_val_loss < min_val_loss:
-                min_val_loss = epoch_val_loss
-                best_ckpt_info = (epoch, min_val_loss, deepcopy(policy.state_dict()))
-        print(f'Val loss:   {epoch_val_loss:.5f}')
-        summary_string = ''
-        for k, v in epoch_summary.items():
-            summary_string += f'{k}: {v.item():.3f} '
-        print(summary_string)
+        # validation — run every val_freq epochs (and always at epoch 0)
+        if epoch % val_freq == 0:
+            with torch.inference_mode():
+                policy.eval()
+                epoch_dicts = []
+                for batch_idx, data in enumerate(val_dataloader):
+                    forward_dict = forward_pass(data, policy)
+                    epoch_dicts.append(forward_dict)
+                last_val_summary = compute_dict_mean(epoch_dicts)
+                last_val_loss = last_val_summary['loss'].item()
+                if last_val_loss < min_val_loss:
+                    min_val_loss = last_val_loss
+                    best_ckpt_info = (epoch, min_val_loss, deepcopy(policy.state_dict()))
+            print(f'\nEpoch {epoch}  Val loss: {last_val_loss:.5f}', flush=True)
+        validation_history.append(last_val_summary)
+        epoch_val_loss = last_val_loss
 
         # training
         policy.train()
@@ -381,11 +380,8 @@ def train_bc(train_dataloader, val_dataloader, config):
             train_history.append(detach_dict(forward_dict))
         epoch_summary = compute_dict_mean(train_history[(batch_idx+1)*epoch:(batch_idx+1)*(epoch+1)])
         epoch_train_loss = epoch_summary['loss']
-        print(f'Train loss: {epoch_train_loss:.5f}')
-        summary_string = ''
-        for k, v in epoch_summary.items():
-            summary_string += f'{k}: {v.item():.3f} '
-        print(summary_string)
+        if epoch % val_freq == 0:
+            print(f'Train loss: {epoch_train_loss:.5f}', flush=True)
 
         if epoch % 100 == 0:
             ckpt_path = os.path.join(ckpt_dir, f'policy_epoch_{epoch}_seed_{seed}.ckpt')
