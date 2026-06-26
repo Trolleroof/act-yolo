@@ -4,7 +4,7 @@ CLASS_NAMES = {0: 'cube', 1: 'target_zone'}
 
 
 class YOLODetector:
-    def __init__(self, weights='weights/yolov8n_pickplace.pt', conf=0.4):
+    def __init__(self, weights='weights/yolov8n_pickplace.pt', conf=0.01):
         from ultralytics import YOLO
         self.model = YOLO(weights)
         self.conf = conf
@@ -17,6 +17,7 @@ class YOLODetector:
         """
         results = self.model(rgb_img, conf=self.conf, verbose=False)[0]
         detections = {name: None for name in CLASS_NAMES.values()}
+        candidates = {name: [] for name in CLASS_NAMES.values()}
 
         for box in results.boxes:
             cls = int(box.cls)
@@ -26,8 +27,16 @@ class YOLODetector:
             xywhn = box.xywhn[0].cpu().numpy()
             conf = float(box.conf[0])
             candidate = np.append(xywhn, conf)
+            candidates[name].append(candidate)
             if detections[name] is None or conf > detections[name][4]:
                 detections[name] = candidate
+
+        if detections['cube'] is None and len(candidates['target_zone']) >= 2:
+            # ponytail: YOLO sometimes localizes both objects but calls both target_zone;
+            # target zone is the larger flat box, cube is the smaller box.
+            by_area = sorted(candidates['target_zone'], key=lambda b: b[2] * b[3])
+            detections['cube'] = by_area[0]
+            detections['target_zone'] = by_area[-1]
 
         return detections
 

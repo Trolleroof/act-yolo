@@ -149,7 +149,7 @@ def main():
     if args.mode in ['yolo_guided', 'yolo_crops']:
         yolo_path = os.path.join(_PROJECT_ROOT, 'weights', 'yolov8n_pickplace.pt')
         from detection.yolo_detector import YOLODetector
-        detector = YOLODetector(weights=yolo_path, conf=0.4)
+        detector = YOLODetector(weights=yolo_path)
 
     # Setup normalization
     pre_process = lambda s_qpos: (s_qpos - stats['qpos_mean']) / stats['qpos_std']
