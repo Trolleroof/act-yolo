@@ -17,7 +17,7 @@ from vision.corruption import corrupt_frame
 class EpisodicDataset(torch.utils.data.Dataset):
     def __init__(self, episode_ids, dataset_dir, camera_names, norm_stats, mode='baseline',
                  image_aug=False, box_aug=False, aug_severities=(0, 1, 2, 3),
-                 aug_p=0.85, box_jitter=0.02, box_dropout=0.1, seed=None):
+                 aug_p=0.85, box_jitter=0.02, box_dropout=0.4, seed=None):
         super(EpisodicDataset).__init__()
         self.episode_ids = episode_ids
         self.dataset_dir = dataset_dir
