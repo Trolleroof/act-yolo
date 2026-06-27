@@ -12,6 +12,7 @@ set -euo pipefail
 PROJECT_ROOT="/workspace/act-yolo"
 DEMOS_DIR="$PROJECT_ROOT/data/demos"
 NUM_DEMOS=150
+NUM_GPUS=$(nvidia-smi -L 2>/dev/null | wc -l || echo 1)
 
 export MUJOCO_GL=egl
 export PYOPENGL_PLATFORM=egl
@@ -52,10 +53,10 @@ fi
 # ── 4. YOLO training ──────────────────────────────────────────────────────────
 if [ ! -f "weights/yolov8n_pickplace.pt" ]; then
   log "=== Training YOLOv8 ==="
-  python detection/train_yolo.py \
+  CUDA_VISIBLE_DEVICES=0 python detection/train_yolo.py \
     --data data/yolo_dataset/dataset.yaml \
     --name pickplace_full_aug \
-    --epochs 50 --imgsz 480 --batch 64 --corrupt_aug --corrupt_p 0.85
+    --epochs 50 --imgsz 480 --batch 128 --corrupt_aug --corrupt_p 0.85
 
   BEST="$(find weights runs -name best.pt -path '*pickplace_full_aug*' 2>/dev/null | head -1)"
   if [ -z "$BEST" ]; then log "ERROR: YOLO best.pt not found"; exit 1; fi
@@ -70,52 +71,35 @@ log "=== YOLO sanity gate ==="
 python scripts/yolo_sanity.py --weights weights/yolov8n_pickplace.pt --n 100
 
 # ── 6. Demo collection (parallel, resumable) ──────────────────────────────────
-log "=== Demo collection ==="
+log "=== Demo collection (30 parallel workers) ==="
 mkdir -p "$DEMOS_DIR"
 
-# Determine resume points for each worker by checking highest existing episode
-# in each worker's range, then starting from the next missing one.
-resume_start() {
-  local range_start=$1
-  local range_end=$2
-  local next=$range_start
-  for i in $(seq $range_start $range_end); do
-    if [ -f "$DEMOS_DIR/episode_${i}.hdf5" ]; then
-      next=$((i + 1))
-    else
-      break
-    fi
+# 30 workers × 5 episodes each = 150 total. Each worker handles a fixed range.
+# On resume, skip workers whose entire range is already collected.
+DEMO_PIDS=()
+for w in $(seq 0 29); do
+  START=$((w * 5))
+  END=$((START + 4))
+  # Check if all 5 episodes in this worker's range exist
+  all_done=true
+  for i in $(seq $START $END); do
+    [ -f "$DEMOS_DIR/episode_${i}.hdf5" ] || { all_done=false; break; }
   done
-  echo $next
-}
+  if [ "$all_done" = true ]; then continue; fi
+  # Find first missing episode in range
+  resume=$START
+  for i in $(seq $START $END); do
+    [ -f "$DEMOS_DIR/episode_${i}.hdf5" ] && resume=$((i+1)) || break
+  done
+  remaining=$((END - resume + 1))
+  python -u scripts/collect_demos.py --num_episodes $remaining --start_idx $resume \
+    > /workspace/demos_${w}.log 2>&1 &
+  DEMO_PIDS+=($!)
+done
 
-W0_START=$(resume_start 0 49)
-W1_START=$(resume_start 50 99)
-W2_START=$(resume_start 100 149)
-
-W0_REMAINING=$((50 - (W0_START - 0)))
-W1_REMAINING=$((50 - (W1_START - 50)))
-W2_REMAINING=$((50 - (W2_START - 100)))
-
-log "Demo workers: W0 from ep $W0_START ($W0_REMAINING remaining), W1 from $W1_START ($W1_REMAINING remaining), W2 from $W2_START ($W2_REMAINING remaining)"
-
-PIDS=()
-if [ $W0_REMAINING -gt 0 ]; then
-  python -u scripts/collect_demos.py --num_episodes $W0_REMAINING --start_idx $W0_START > /workspace/demos_0.log 2>&1 &
-  PIDS+=($!)
-fi
-if [ $W1_REMAINING -gt 0 ]; then
-  python -u scripts/collect_demos.py --num_episodes $W1_REMAINING --start_idx $W1_START > /workspace/demos_1.log 2>&1 &
-  PIDS+=($!)
-fi
-if [ $W2_REMAINING -gt 0 ]; then
-  python -u scripts/collect_demos.py --num_episodes $W2_REMAINING --start_idx $W2_START > /workspace/demos_2.log 2>&1 &
-  PIDS+=($!)
-fi
-
-if [ ${#PIDS[@]} -gt 0 ]; then
-  log "Waiting for ${#PIDS[@]} demo workers (PIDs: ${PIDS[*]})..."
-  for pid in "${PIDS[@]}"; do wait $pid || true; done
+if [ ${#DEMO_PIDS[@]} -gt 0 ]; then
+  log "Waiting for ${#DEMO_PIDS[@]} demo workers..."
+  for pid in "${DEMO_PIDS[@]}"; do wait $pid || true; done
   log "Demo workers done"
 else
   log "All demo episodes already collected"
@@ -148,8 +132,8 @@ log "=== ACT Training ==="
 TRAIN_PIDS=()
 
 if [ ! -f "$BASELINE_CKPT" ]; then
-  log "Starting baseline ACT training..."
-  python scripts/train.py --mode baseline --num_epochs 2000 \
+  log "Starting baseline ACT training on GPU 0..."
+  CUDA_VISIBLE_DEVICES=0 python scripts/train.py --mode baseline --num_epochs 2000 --batch_size 64 \
     > /workspace/train_baseline.log 2>&1 &
   TRAIN_PIDS+=($!)
 else
@@ -157,8 +141,8 @@ else
 fi
 
 if [ ! -f "$YOLO_CKPT" ]; then
-  log "Starting yolo_guided ACT training..."
-  python scripts/train.py --mode yolo_guided --num_epochs 2000 \
+  log "Starting yolo_guided ACT training on GPU 1..."
+  CUDA_VISIBLE_DEVICES=1 python scripts/train.py --mode yolo_guided --num_epochs 2000 --batch_size 64 \
     > /workspace/train_yolo.log 2>&1 &
   TRAIN_PIDS+=($!)
 else
@@ -174,20 +158,22 @@ fi
 # ── 8. Robustness eval sweep (all 8 cells in parallel) ───────────────────────
 log "=== Robustness eval sweep ==="
 mkdir -p data/eval_results
+# Assign each eval cell its own GPU (8 cells, 8 GPUs)
 EVAL_PIDS=()
-
+GPU_IDX=0
 for MODE in baseline yolo_guided; do
   for SEV in 0 1 2 3; do
     RESULT_FILE="data/eval_results/results_${MODE}_${SEV}.json"
     if [ ! -f "$RESULT_FILE" ]; then
-      log "  Launching eval: $MODE sev=$SEV"
-      python scripts/evaluate.py --mode $MODE --corruption_severity $SEV \
-        --num_rollouts 50 \
+      log "  Launching eval: $MODE sev=$SEV on GPU $GPU_IDX"
+      CUDA_VISIBLE_DEVICES=$GPU_IDX python scripts/evaluate.py \
+        --mode $MODE --corruption_severity $SEV --num_rollouts 50 \
         > /workspace/eval_${MODE}_${SEV}.log 2>&1 &
       EVAL_PIDS+=($!)
     else
       log "  Eval $MODE sev=$SEV already done, skipping"
     fi
+    GPU_IDX=$(( (GPU_IDX + 1) % NUM_GPUS ))
   done
 done
 
