@@ -110,24 +110,42 @@ TOTAL_HDF5=$(ls "$DEMOS_DIR"/episode_*.hdf5 2>/dev/null | wc -l)
 log "Total HDF5 files: $TOTAL_HDF5"
 
 python3 - << 'PYEOF'
-import h5py, glob, numpy as np
+import h5py, glob, numpy as np, os
 demos = sorted(glob.glob('/workspace/act-yolo/data/demos/episode_*.hdf5'))
-successes = sum(1 for f in demos if h5py.File(f,'r').attrs.get('success', False))
-cube_rates = [(h5py.File(f,'r')['cube_boxes'][:].sum(axis=1)!=0).mean() for f in demos[:20]]
-print(f'Successful demos: {successes}/{len(demos)}')
-print(f'Cube detection rate (first 20 eps): {np.mean(cube_rates):.1%}')
-print(f'Episodes with any cube detection: {sum(r>0 for r in cube_rates)}/20')
-if demos:
-    with h5py.File(demos[0], 'r') as f:
+bad, successes, cube_rates = [], 0, []
+for f in demos:
+    try:
+        with h5py.File(f, 'r') as hf:
+            if hf.attrs.get('success', False): successes += 1
+            if 'cube_boxes' in hf and len(cube_rates) < 20:
+                cube_rates.append((hf['cube_boxes'][:].sum(axis=1)!=0).mean())
+    except Exception:
+        bad.append(f)
+for f in bad:
+    os.remove(f)
+    print(f'Removed corrupt: {f}')
+print(f'Successful demos: {successes}/{len(demos)-len(bad)}')
+if cube_rates:
+    print(f'Cube detection rate (first 20 eps): {np.mean(cube_rates):.1%}')
+    print(f'Episodes with any cube detection: {sum(r>0 for r in cube_rates)}/{len(cube_rates)}')
+good = [f for f in demos if f not in bad]
+if good:
+    with h5py.File(good[0], 'r') as hf:
         for k in ['top_rgb','wrist_rgb','cube_boxes','target_boxes','qpos','actions']:
-            if k in f: print(f'  {k}: {f[k].shape}')
+            if k in hf: print(f'  {k}: {hf[k].shape}')
 PYEOF
 
 # Re-populate cube_boxes/target_boxes if cube detection is zero across all demos
 CUBE_DETECTED=$(python3 -c "
 import h5py, glob, numpy as np
 demos = sorted(glob.glob('$DEMOS_DIR/episode_*.hdf5'))[:10]
-rates = [(h5py.File(f,'r')['cube_boxes'][:].sum(axis=1)!=0).mean() for f in demos]
+rates = []
+for f in demos:
+    try:
+        with h5py.File(f,'r') as hf:
+            rates.append((hf['cube_boxes'][:].sum(axis=1)!=0).mean())
+    except Exception:
+        pass
 print('YES' if any(r>0 for r in rates) else 'NO')
 " 2>/dev/null)
 if [ "$CUBE_DETECTED" = "NO" ]; then
