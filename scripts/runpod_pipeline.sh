@@ -142,30 +142,49 @@ BASELINE_CKPT="checkpoints/baseline/policy_last.ckpt"
 YOLO_CKPT="checkpoints/yolo_guided/policy_last.ckpt"
 
 log "=== ACT Training ==="
-TRAIN_PIDS=()
 
-if [ ! -f "$BASELINE_CKPT" ]; then
-  log "Starting baseline ACT training on GPU 0..."
-  CUDA_VISIBLE_DEVICES=0 python scripts/train.py --mode baseline --num_epochs 2000 --batch_size 64 \
-    > /workspace/train_baseline.log 2>&1 &
-  TRAIN_PIDS+=($!)
+if [ "$NUM_GPUS" -ge 2 ]; then
+  # Multi-GPU: run baseline and yolo_guided in parallel on separate GPUs
+  TRAIN_PIDS=()
+  if [ ! -f "$BASELINE_CKPT" ]; then
+    log "Starting baseline ACT training on GPU 0..."
+    CUDA_VISIBLE_DEVICES=0 python scripts/train.py --mode baseline --num_epochs 2000 --batch_size 64 \
+      > /workspace/train_baseline.log 2>&1 &
+    TRAIN_PIDS+=($!)
+  else
+    log "Baseline checkpoint exists, skipping"
+  fi
+  if [ ! -f "$YOLO_CKPT" ]; then
+    log "Starting yolo_guided ACT training on GPU 1..."
+    CUDA_VISIBLE_DEVICES=1 python scripts/train.py --mode yolo_guided --num_epochs 2000 --batch_size 64 \
+      > /workspace/train_yolo.log 2>&1 &
+    TRAIN_PIDS+=($!)
+  else
+    log "yolo_guided checkpoint exists, skipping"
+  fi
+  if [ ${#TRAIN_PIDS[@]} -gt 0 ]; then
+    log "Waiting for ${#TRAIN_PIDS[@]} ACT training job(s)..."
+    for pid in "${TRAIN_PIDS[@]}"; do wait $pid || log "WARNING: training job $pid exited non-zero"; done
+    log "ACT training done"
+  fi
 else
-  log "Baseline checkpoint exists, skipping"
-fi
-
-if [ ! -f "$YOLO_CKPT" ]; then
-  log "Starting yolo_guided ACT training on GPU 1..."
-  CUDA_VISIBLE_DEVICES=1 python scripts/train.py --mode yolo_guided --num_epochs 2000 --batch_size 64 \
-    > /workspace/train_yolo.log 2>&1 &
-  TRAIN_PIDS+=($!)
-else
-  log "yolo_guided checkpoint exists, skipping"
-fi
-
-if [ ${#TRAIN_PIDS[@]} -gt 0 ]; then
-  log "Waiting for ${#TRAIN_PIDS[@]} ACT training job(s)..."
-  for pid in "${TRAIN_PIDS[@]}"; do wait $pid || log "WARNING: training job $pid exited non-zero"; done
-  log "ACT training done"
+  # Single GPU: run sequentially
+  if [ ! -f "$BASELINE_CKPT" ]; then
+    log "Training baseline ACT on GPU 0 (single-GPU mode)..."
+    CUDA_VISIBLE_DEVICES=0 python scripts/train.py --mode baseline --num_epochs 2000 --batch_size 64 \
+      > /workspace/train_baseline.log 2>&1
+    log "Baseline training done"
+  else
+    log "Baseline checkpoint exists, skipping"
+  fi
+  if [ ! -f "$YOLO_CKPT" ]; then
+    log "Training yolo_guided ACT on GPU 0 (single-GPU mode)..."
+    CUDA_VISIBLE_DEVICES=0 python scripts/train.py --mode yolo_guided --num_epochs 2000 --batch_size 64 \
+      > /workspace/train_yolo.log 2>&1
+    log "yolo_guided training done"
+  else
+    log "yolo_guided checkpoint exists, skipping"
+  fi
 fi
 
 # ── 8. Robustness eval sweep (all 8 cells in parallel) ───────────────────────
