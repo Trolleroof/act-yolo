@@ -110,19 +110,32 @@ TOTAL_HDF5=$(ls "$DEMOS_DIR"/episode_*.hdf5 2>/dev/null | wc -l)
 log "Total HDF5 files: $TOTAL_HDF5"
 
 python3 - << 'PYEOF'
-import h5py, glob
+import h5py, glob, numpy as np
 demos = sorted(glob.glob('/workspace/act-yolo/data/demos/episode_*.hdf5'))
 successes = sum(1 for f in demos if h5py.File(f,'r').attrs.get('success', False))
+cube_rates = [(h5py.File(f,'r')['cube_boxes'][:].sum(axis=1)!=0).mean() for f in demos[:20]]
 print(f'Successful demos: {successes}/{len(demos)}')
+print(f'Cube detection rate (first 20 eps): {np.mean(cube_rates):.1%}')
+print(f'Episodes with any cube detection: {sum(r>0 for r in cube_rates)}/20')
 if demos:
     with h5py.File(demos[0], 'r') as f:
         for k in ['top_rgb','wrist_rgb','cube_boxes','target_boxes','qpos','actions']:
             if k in f: print(f'  {k}: {f[k].shape}')
-        cb = f['cube_boxes'][:]
-        tb = f['target_boxes'][:]
-        print(f'  cube_box detection rate: {(cb.sum(axis=1)!=0).mean():.1%}')
-        print(f'  target_box detection rate: {(tb.sum(axis=1)!=0).mean():.1%}')
 PYEOF
+
+# Re-populate cube_boxes/target_boxes if cube detection is zero across all demos
+CUBE_DETECTED=$(python3 -c "
+import h5py, glob, numpy as np
+demos = sorted(glob.glob('$DEMOS_DIR/episode_*.hdf5'))[:10]
+rates = [(h5py.File(f,'r')['cube_boxes'][:].sum(axis=1)!=0).mean() for f in demos]
+print('YES' if any(r>0 for r in rates) else 'NO')
+" 2>/dev/null)
+if [ "$CUBE_DETECTED" = "NO" ]; then
+  log "WARNING: cube_boxes all zero — re-populating with current YOLO weights"
+  python scripts/repopulate_boxes.py --demos_dir "$DEMOS_DIR" --weights weights/yolov8n_pickplace.pt
+else
+  log "Cube detection OK, skipping repopulate"
+fi
 
 # ── 7. ACT training (parallel baseline + yolo_guided) ────────────────────────
 BASELINE_CKPT="checkpoints/baseline/policy_last.ckpt"
