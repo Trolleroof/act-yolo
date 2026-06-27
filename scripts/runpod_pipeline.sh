@@ -56,7 +56,7 @@ if [ ! -f "weights/yolov8n_pickplace.pt" ]; then
   CUDA_VISIBLE_DEVICES=0 python detection/train_yolo.py \
     --data data/yolo_dataset/dataset.yaml \
     --name pickplace_full_aug \
-    --epochs 50 --imgsz 480 --batch 128 --corrupt_aug --corrupt_p 0.85
+    --epochs 50 --imgsz 480 --batch -1 --corrupt_aug --corrupt_p 0.85
 
   BEST="$(find weights runs -name best.pt -path '*pickplace_full_aug*' 2>/dev/null | head -1)"
   if [ -z "$BEST" ]; then log "ERROR: YOLO best.pt not found"; exit 1; fi
