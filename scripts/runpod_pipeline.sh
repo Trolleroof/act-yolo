@@ -168,7 +168,7 @@ if [ "$NUM_GPUS" -ge 2 ]; then
   TRAIN_PIDS=()
   if [ ! -f "$BASELINE_CKPT" ]; then
     log "Starting baseline ACT training on GPU 0..."
-    CUDA_VISIBLE_DEVICES=0 python scripts/train.py --mode baseline --num_epochs 2000 --batch_size 32 \
+    CUDA_VISIBLE_DEVICES=0 python scripts/train.py --mode baseline --num_epochs 2000 --batch_size 48 \
       > /workspace/train_baseline.log 2>&1 &
     TRAIN_PIDS+=($!)
   else
@@ -176,7 +176,7 @@ if [ "$NUM_GPUS" -ge 2 ]; then
   fi
   if [ ! -f "$YOLO_CKPT" ]; then
     log "Starting yolo_guided ACT training on GPU 1..."
-    CUDA_VISIBLE_DEVICES=1 python scripts/train.py --mode yolo_guided --num_epochs 2000 --batch_size 32 \
+    CUDA_VISIBLE_DEVICES=1 python scripts/train.py --mode yolo_guided --num_epochs 2000 --batch_size 48 \
       > /workspace/train_yolo.log 2>&1 &
     TRAIN_PIDS+=($!)
   else
@@ -191,7 +191,7 @@ else
   # Single GPU: run sequentially
   if [ ! -f "$BASELINE_CKPT" ]; then
     log "Training baseline ACT on GPU 0 (single-GPU mode)..."
-    CUDA_VISIBLE_DEVICES=0 python scripts/train.py --mode baseline --num_epochs 2000 --batch_size 32 \
+    CUDA_VISIBLE_DEVICES=0 python scripts/train.py --mode baseline --num_epochs 2000 --batch_size 48 \
       > /workspace/train_baseline.log 2>&1
     log "Baseline training done"
   else
@@ -199,7 +199,7 @@ else
   fi
   if [ ! -f "$YOLO_CKPT" ]; then
     log "Training yolo_guided ACT on GPU 0 (single-GPU mode)..."
-    CUDA_VISIBLE_DEVICES=0 python scripts/train.py --mode yolo_guided --num_epochs 2000 --batch_size 32 \
+    CUDA_VISIBLE_DEVICES=0 python scripts/train.py --mode yolo_guided --num_epochs 2000 --batch_size 48 \
       > /workspace/train_yolo.log 2>&1
     log "yolo_guided training done"
   else
